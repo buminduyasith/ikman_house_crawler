@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import time
 import urllib.request
 from typing import Optional
 
@@ -28,6 +30,20 @@ def _http_error_details(e: Exception) -> str:
         suffix = f"\nResponse body: {body[:500]}" if body else ""
         return f"HTTP Error {e.code}: {e.reason} ({e.geturl()}){suffix}"
     return str(e)
+
+
+def _parse_retry_after_seconds(body: str) -> Optional[int]:
+    if not body:
+        return None
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    params = parsed.get("parameters") or {}
+    retry_after = params.get("retry_after")
+    if isinstance(retry_after, int) and retry_after > 0:
+        return retry_after
+    return None
 
 
 def _escape_markdown(text: str) -> str:
@@ -61,6 +77,8 @@ def _build_ad_caption_markdown(ad: IkmanAd) -> str:
         lines.append(_escape_markdown(ad.description))
     if ad.details:
         lines.append(_escape_markdown(ad.details))
+    if ad.slug:
+        lines.append(f"https://ikman.lk/en/ad/{ad.slug}")
     return "\n".join(lines)
 
 
@@ -108,11 +126,38 @@ def send_media_group(
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except Exception as e:  # noqa: BLE001
-        raise TelegramSendError(_http_error_details(e)) from e
+    last_error: Optional[Exception] = None
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+            last_error = None
+            break
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                err_body = ""
+
+            if e.code == 429:
+                retry_after = _parse_retry_after_seconds(err_body) or 5
+                if attempt < 4:
+                    time.sleep(retry_after + 1)
+                    last_error = e
+                    continue
+            raise TelegramSendError(_http_error_details(e)) from e
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
+            if attempt < 4:
+                delay_sec = 2**attempt
+                time.sleep(delay_sec)
+                last_error = e
+                continue
+            raise TelegramSendError(_http_error_details(e)) from e
+        except Exception as e:  # noqa: BLE001
+            raise TelegramSendError(_http_error_details(e)) from e
+
+    if last_error is not None:
+        raise TelegramSendError(_http_error_details(last_error)) from last_error
 
     try:
         parsed = json.loads(body)
@@ -216,11 +261,38 @@ def send_message(
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except Exception as e:  # noqa: BLE001
-        raise TelegramSendError(str(e)) from e
+    last_error: Optional[Exception] = None
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+            last_error = None
+            break
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                err_body = ""
+
+            if e.code == 429:
+                retry_after = _parse_retry_after_seconds(err_body) or 5
+                if attempt < 4:
+                    time.sleep(retry_after + 1)
+                    last_error = e
+                    continue
+            raise TelegramSendError(_http_error_details(e)) from e
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
+            if attempt < 4:
+                delay_sec = 2**attempt
+                time.sleep(delay_sec)
+                last_error = e
+                continue
+            raise TelegramSendError(_http_error_details(e)) from e
+        except Exception as e:  # noqa: BLE001
+            raise TelegramSendError(_http_error_details(e)) from e
+
+    if last_error is not None:
+        raise TelegramSendError(_http_error_details(last_error)) from last_error
 
     try:
         parsed = json.loads(body)
