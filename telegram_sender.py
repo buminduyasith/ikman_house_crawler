@@ -67,19 +67,27 @@ def _build_ad_message(ad: IkmanAd) -> str:
     return "\n".join([p for p in parts if p])
 
 
-def _build_ad_caption_markdown(ad: IkmanAd) -> str:
+def _build_ad_caption_markdown(ad: IkmanAd, max_length: int = 1024) -> str:
     lines = []
     if ad.title:
         lines.append(f"*{_escape_markdown(ad.title)}*")
     if ad.price:
         lines.append(_escape_markdown(ad.price))
     if ad.description:
-        lines.append(_escape_markdown(ad.description))
+        desc = (
+            ad.description[:200] + "..."
+            if len(ad.description) > 200
+            else ad.description
+        )
+        lines.append(_escape_markdown(desc))
     if ad.details:
         lines.append(_escape_markdown(ad.details))
     if ad.slug:
         lines.append(f"https://ikman.lk/en/ad/{ad.slug}")
-    return "\n".join(lines)
+    caption = "\n".join(lines)
+    if len(caption) > max_length:
+        caption = caption[: max_length - 3] + "..."
+    return caption
 
 
 def _ad_image_urls(ad: IkmanAd, max_images: int = 10) -> list[str]:
@@ -145,6 +153,10 @@ def send_media_group(
                     time.sleep(retry_after + 1)
                     last_error = e
                     continue
+            if e.code == 400:
+                raise TelegramSendError(
+                    f"Bad Request (400): {err_body[:500]}. Check image URLs or caption length."
+                ) from e
             raise TelegramSendError(_http_error_details(e)) from e
         except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
             if attempt < 4:
