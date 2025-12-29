@@ -3,9 +3,8 @@ name: Ikman House Crawler
 on:
   # Run on schedule (cron)
   schedule:
-    # Runs every 6 hours (at minute 0)
-    # Adjust the schedule as needed: https://crontab.guru/
-    - cron: "0 */6 * * *"
+    # Runs once daily at 6 PM Sri Lanka time (12:30 PM UTC)
+    - cron: "30 12 * * *"
 
   # Also allow manual trigger from GitHub UI
   workflow_dispatch:
