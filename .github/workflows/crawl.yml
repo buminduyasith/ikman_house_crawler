@@ -38,6 +38,8 @@ jobs:
           PAGES: ${{ secrets.PAGES }}
           SEND_LIMIT: ${{ secrets.SEND_LIMIT }}
           MAX_IMAGES: ${{ secrets.MAX_IMAGES }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           LOG_LEVEL: INFO
         run: |
           uv run python main.py

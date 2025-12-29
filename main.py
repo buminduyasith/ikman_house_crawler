@@ -9,6 +9,7 @@ from typing import Optional
 
 from house_crawler import build_paged_url, fetch_house_ads
 from telegram_sender import send_ads_media_groups
+from sheets_tracker import load_sent_ids, save_sent_ids, filter_unsent_ads
 
 
 def _parse_price_lkr(price_text: str) -> Optional[int]:
@@ -270,6 +271,27 @@ def main() -> None:
         logger.info("No ads found, nothing to send")
         return
 
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+    if sheet_id:
+        sent_ids = load_sent_ids(sheet_id)
+        logger.info("Loaded %s previously sent ad IDs from Google Sheet", len(sent_ids))
+
+        unsent_ads = filter_unsent_ads(ads, sent_ids)
+        logger.info(
+            "Found %s new ads (filtered out %s already sent)",
+            len(unsent_ads),
+            len(ads) - len(unsent_ads),
+        )
+
+        if not unsent_ads:
+            logger.info("All ads have already been sent, nothing new to send")
+            return
+
+        ads_to_send = unsent_ads
+    else:
+        logger.info("GOOGLE_SHEET_ID not set, skipping duplicate check")
+        ads_to_send = ads
+
     logger.info(
         "Sending ads to Telegram chat_id=%s (limit=%s, max_images=%s)",
         chat_id,
@@ -279,11 +301,22 @@ def main() -> None:
     send_ads_media_groups(
         bot_token=bot_token,
         chat_id=chat_id,
-        ads=ads,
+        ads=ads_to_send,
         limit=limit,
         max_images=max_images,
         logger=logger,
     )
+
+    if sheet_id:
+        sent_ad_ids = (
+            [ad.id for ad in ads_to_send[:limit] if ad.id]
+            if limit
+            else [ad.id for ad in ads_to_send if ad.id]
+        )
+        if save_sent_ids(sent_ad_ids, sheet_id):
+            logger.info("Saved %s new ad IDs to Google Sheet", len(sent_ad_ids))
+        else:
+            logger.warning("Failed to save ad IDs to Google Sheet")
 
     logger.info("Done")
 

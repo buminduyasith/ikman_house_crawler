@@ -11,3 +11,9 @@ wheels/
 
 # Local environment files
 .env
+
+# Google service account credentials (NEVER commit!)
+*-credentials.json
+*service*.json
+ikman-house-crawler-*.json
+ikman-house-crawler-6e227eefe802.json
