@@ -90,6 +90,22 @@ def _build_ad_caption_markdown(ad: IkmanAd, max_length: int = 1024) -> str:
     return caption
 
 
+def _build_ad_caption_plain(ad: IkmanAd, max_length: int = 1024) -> str:
+    lines = []
+    if ad.title:
+        lines.append(ad.title)
+    if ad.price:
+        lines.append(ad.price)
+    if ad.details:
+        lines.append(ad.details)
+    if ad.slug:
+        lines.append(f"https://ikman.lk/en/ad/{ad.slug}")
+    caption = "\n".join(lines)
+    if len(caption) > max_length:
+        caption = caption[: max_length - 3] + "..."
+    return caption
+
+
 def _ad_image_urls(ad: IkmanAd, max_images: int = 10) -> list[str]:
     urls: list[str] = []
 
@@ -198,14 +214,13 @@ def send_ad_media_group(
             disable_web_page_preview=True,
         )
 
-    caption = _build_ad_caption_markdown(ad)
+    caption = _build_ad_caption_plain(ad)
 
     media: list[dict] = []
     for idx, url in enumerate(urls):
         item: dict = {"type": "photo", "media": url}
         if idx == 0 and caption:
             item["caption"] = caption
-            item["parse_mode"] = "Markdown"
         media.append(item)
 
     return send_media_group(bot_token=bot_token, chat_id=chat_id, media=media)
