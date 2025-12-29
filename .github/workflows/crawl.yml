@@ -37,6 +37,7 @@ jobs:
           BATHROOMS_MIN: ${{ secrets.BATHROOMS_MIN }}
           PAGES: ${{ secrets.PAGES }}
           SEND_LIMIT: ${{ secrets.SEND_LIMIT }}
+          BATCH_SIZE: ${{ secrets.BATCH_SIZE }}
           MAX_IMAGES: ${{ secrets.MAX_IMAGES }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}

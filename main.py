@@ -8,8 +8,13 @@ import re
 from typing import Optional
 
 from house_crawler import build_paged_url, fetch_house_ads
-from telegram_sender import send_ads_media_groups
-from sheets_tracker import load_sent_ids, save_sent_ids, filter_unsent_ads
+from telegram_sender import send_ad_media_group
+from sheets_tracker import (
+    load_sent_ids,
+    save_ads_batch_to_sheet,
+    filter_unsent_ads,
+    ensure_headers,
+)
 
 
 def _parse_price_lkr(price_text: str) -> Optional[int]:
@@ -273,6 +278,7 @@ def main() -> None:
 
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
     if sheet_id:
+        ensure_headers(sheet_id)
         sent_ids = load_sent_ids(sheet_id)
         logger.info("Loaded %s previously sent ad IDs from Google Sheet", len(sent_ids))
 
@@ -292,33 +298,68 @@ def main() -> None:
         logger.info("GOOGLE_SHEET_ID not set, skipping duplicate check")
         ads_to_send = ads
 
+    if limit:
+        ads_to_send = ads_to_send[:limit]
+
+    batch_size = _get_optional_int("BATCH_SIZE") or 50
+    total_ads = len(ads_to_send)
+
     logger.info(
-        "Sending ads to Telegram chat_id=%s (limit=%s, max_images=%s)",
+        "Sending %s ads to Telegram chat_id=%s (batch_size=%s, max_images=%s)",
+        total_ads,
         chat_id,
-        limit,
+        batch_size,
         max_images,
     )
-    send_ads_media_groups(
-        bot_token=bot_token,
-        chat_id=chat_id,
-        ads=ads_to_send,
-        limit=limit,
-        max_images=max_images,
-        logger=logger,
-    )
 
-    if sheet_id:
-        sent_ad_ids = (
-            [ad.id for ad in ads_to_send[:limit] if ad.id]
-            if limit
-            else [ad.id for ad in ads_to_send if ad.id]
+    sent_count = 0
+    failed_count = 0
+
+    for batch_start in range(0, total_ads, batch_size):
+        batch_end = min(batch_start + batch_size, total_ads)
+        batch = ads_to_send[batch_start:batch_end]
+        batch_num = (batch_start // batch_size) + 1
+        total_batches = (total_ads + batch_size - 1) // batch_size
+
+        logger.info(
+            "Processing batch %s/%s (%s ads)", batch_num, total_batches, len(batch)
         )
-        if save_sent_ids(sent_ad_ids, sheet_id):
-            logger.info("Saved %s new ad IDs to Google Sheet", len(sent_ad_ids))
-        else:
-            logger.warning("Failed to save ad IDs to Google Sheet")
 
-    logger.info("Done")
+        successfully_sent_in_batch = []
+
+        for idx, ad in enumerate(batch):
+            try:
+                overall_idx = batch_start + idx + 1
+                logger.info("Sending %s/%s: %s", overall_idx, total_ads, ad.title)
+                send_ad_media_group(
+                    bot_token=bot_token,
+                    chat_id=chat_id,
+                    ad=ad,
+                    max_images=max_images,
+                )
+                logger.info("Sent: %s", ad.slug)
+                sent_count += 1
+                successfully_sent_in_batch.append(ad)
+
+            except Exception as e:
+                logger.error("Failed to send ad %s: %s", ad.id, str(e))
+                failed_count += 1
+                continue
+
+        if sheet_id and successfully_sent_in_batch:
+            if save_ads_batch_to_sheet(successfully_sent_in_batch, sheet_id):
+                logger.info(
+                    "Saved %s ads to Google Sheet (batch %s)",
+                    len(successfully_sent_in_batch),
+                    batch_num,
+                )
+            else:
+                logger.warning("Failed to save batch %s to Google Sheet", batch_num)
+
+        if batch_end < total_ads:
+            logger.info("Batch %s complete. Continuing to next batch...", batch_num)
+
+    logger.info("Done. Sent: %s, Failed: %s", sent_count, failed_count)
 
 
 if __name__ == "__main__":
